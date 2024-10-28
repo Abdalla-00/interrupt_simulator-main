@@ -61,19 +61,20 @@ void handleEndIO(int position, int duration, FILE* logFile, int* currentTime); /
 
 // A2 function declarations
 void initMemoryPartitions(MemoryPartition* partitions); // Initializes memory partitions
-int findBestPartition(int programSize, MemoryPartition* partitions);
+void findBestPartition(int programSize, MemoryPartition* partitions, int* bestPartition, int* bestsPartitionIndex);
 void randomSplit(int originalValue, int numParts, int* parts);
+int findProgramSize(ExternalFile* externalFiles, int externalFileCount, char* programName);
 
 PCB* createPCB(int pid, char* programName, int partition, int size, PCB* parent);
 
 int loadTrace(const char* filename, TraceEntry** traceEntries);
 int loadExternalFiles(const char* filename, ExternalFile** externalFiles);
-void loadProgram(const char* programName, PCB* currentPCB, MemoryPartition* partitions, ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime);
+void loadProgram(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partitions, ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime);
 void updateSystemStatus(FILE* statusFile, PCB* pcbList, int* currentTime);
 
 
 void handleFork(PCB* parentPCB, FILE* logFile, TraceEntry forkEntry, int* currentTime);
-void handleExec(const char* programName, PCB* currentPCB, MemoryPartition* partitions, ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime);
+void handleExec(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partitions, ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime);
 
 void printTraceEntries(TraceEntry* traceEntries, int traceCount);
 void printExternalFiles(ExternalFile* externalFiles, int externalFileCount);

@@ -30,24 +30,25 @@ void initMemoryPartitions(MemoryPartition* partitions) {
     }
 }
 
-// Function to find the best-fit memory partition for a program
-int findBestPartition(int programSize, MemoryPartition* partitions) {
-    int bestPartition = -1;
+// Function to find the best-fit memory partition for a program, checking lowest memory first
+void findBestPartition(int programSize, MemoryPartition* partitions, int* bestPartition, int* bestsPartitionIndex) {
+    int partition = -1;
     int minSizeDiff = 100; // Arbitrary large number for initial comparison
 
-    for (int i = 0; i < MAX_PARTITIONS; i++) {
+    // Loop through the partitions from the end to the beginning
+    for (int i = MAX_PARTITIONS - 1; i >= 0; i--) {
         // Check if the partition is free and large enough
         if (strcmp(partitions[i].status, "free") == 0 && partitions[i].freeSpace >= programSize) {
             int sizeDiff = partitions[i].freeSpace - programSize;
             // Update the best partition if a smaller size difference is found
             if (sizeDiff < minSizeDiff) {
                 minSizeDiff = sizeDiff;
-                bestPartition = i;
+                partition = i;
             }
         }
     }
-
-    return bestPartition;
+    *bestsPartitionIndex = partition;
+    *bestPartition= partitions[partition].partitionNumber;
 }
 
 // Function to randomly split an integer into 'numParts' parts
@@ -70,6 +71,14 @@ void randomSplit(int originalValue, int numParts, int* parts) {
     // Assign the remaining value to the last part
     parts[numParts - 1] = remainingValue;
 }
+
+// Find memory size of program from external program list
+int findProgramSize(ExternalFile* externalFiles,int externalFileCount, char* programName){
+    for (size_t i = 0; i < externalFileCount; i++){
+        if (strcmp(externalFiles[i].programName, programName) == 0) return externalFiles[i].size;
+    }
+    return -1;    
+} 
 
 // Creates a new PCB
 PCB* createPCB(int pid, char* programName, int partition, int size, PCB* parent) {
@@ -215,10 +224,10 @@ int loadExternalFiles(const char* filename, ExternalFile** externalFiles) {
 }
 
 // Dynamically loads the program from the program.txt file
-void loadProgram(const char* programName, PCB* currentPCB, MemoryPartition* partitions, 
+void loadProgram(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partitions, 
                  ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime) {
     char programFileName[30];
-    snprintf(programFileName, sizeof(programFileName), "%s.txt", programName);
+    snprintf(programFileName, sizeof(programFileName), "%s.txt", execEntry.programName);
 
     FILE* programFile = fopen(programFileName, "r");
     if (!programFile) {
@@ -249,7 +258,7 @@ void loadProgram(const char* programName, PCB* currentPCB, MemoryPartition* part
                 sscanf(line, "%[^ ] %[^,], %d", entry.activity, execProgramName, &entry.duration);
                 strncpy(entry.programName, execProgramName, sizeof(entry.programName) - 1);
                 entry.programName[sizeof(entry.programName) - 1] = '\0';  // Null-terminate
-                handleExec(entry.programName, currentPCB, partitions, externalFiles, externalFileCount, logFile, currentTime);
+                handleExec(execEntry, currentPCB, partitions, externalFiles, externalFileCount, logFile, currentTime);
             }
         }
         // CPU, SYSCALL, and END_IO commands use SystemEntry structure
@@ -285,7 +294,7 @@ void handleFork(PCB* parentPCB, FILE* logFile, TraceEntry forkEntry, int* curren
 
     // Save context (random between 1-3 ms)
     int contextSaveDuration = rand() % 3 + 1;
-    fprintf(logFile, "%d, context saved\n", *currentTime);
+    fprintf(logFile, "%d, %d, context saved\n", *currentTime, contextSaveDuration);
     *currentTime += contextSaveDuration;
 
     fprintf(logFile, "%d, 1, find vector %d in memory position 0x%04X\n", *currentTime, FORK_ISR_ADDRESS, FORK_ISR_ADDRESS * 2);
@@ -314,7 +323,7 @@ void handleFork(PCB* parentPCB, FILE* logFile, TraceEntry forkEntry, int* curren
 }
 
 // Function to handle the EXEC system call
-void handleExec(const char* programName, PCB* currentPCB, MemoryPartition* partitions, ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime) {
+void handleExec(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partitions, ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime) {
     fprintf(logFile, "%d, 1, switch to kernel mode\n", *currentTime);
     *currentTime += 1;
 
@@ -331,54 +340,62 @@ void handleExec(const char* programName, PCB* currentPCB, MemoryPartition* parti
     fprintf(logFile, "%d, 1, load address 0x%04X into the PC\n", *currentTime, isrAddress);
     *currentTime += 1;
 
-    // Locate the program size in the external files
-    int programSize = -1;
-    for (int i = 0; i < externalFileCount; i++) {
-        if (strcmp(externalFiles[i].programName, programName) == 0) {
-            programSize = externalFiles[i].size;
-            break;
+    // Split duration of EXEC call 
+    int numParts = 5;
+    int execDurations[5];
+    randomSplit(execEntry.duration, numParts, execDurations);
+
+    // 1. find program size of programName 
+    int programSize = findProgramSize(externalFiles, externalFileCount, execEntry.programName);
+    if (programSize == -1) {
+        fprintf(logFile, "Error: Program %s not found in external files.\n", execEntry.programName);
+        return;
+    }
+
+    fprintf(logFile, "%d, %d, EXEC: load %s of size %d MB\n", *currentTime, execDurations[0] , execEntry.programName, programSize);
+    *currentTime += execDurations[0];
+
+    // 2. Find the best-fit memory partition for the program
+    int bestPartition, partitionIndex;
+    findBestPartition(programSize, partitions, &bestPartition, &partitionIndex);
+        if (bestPartition == -1) {
+        fprintf(logFile, "Error: No suitable partition found for program %s.\n", execEntry.programName);
+        return;
+    }
+    
+    fprintf(logFile, "%d, %d, found partition %d with %dMb of space\n", *currentTime, execDurations[1] , bestPartition, programSize);
+    *currentTime += execDurations[1];
+
+    //3. free up previously occupied memory and size
+    for (int i = 0; i < MAX_PARTITIONS; i++){
+        if (partitions[i].partitionNumber == currentPCB->partition){
+            partitions[i].freeSpace += currentPCB->size;
+            strcpy(partitions[i].status, "free");
         }
     }
+    
+    // mark the new partition status in (memory)
+    partitions[partitionIndex].freeSpace -= programSize; 
+    if (partitions[partitionIndex].freeSpace == 0) // check if memory is full
+        strcpy(partitions[partitionIndex].status, "occupied");
+    else strcpy(partitions[partitionIndex].status, "free");
 
-    if (programSize == -1) {
-        fprintf(logFile, "Error: Program %s not found in external files.\n", programName);
-        return;
-    }
+    fprintf(logFile, "%d, %d, partition %d marked as occupied\n", *currentTime, execDurations[2], bestPartition);
+    *currentTime += execDurations[2];
 
-    // Find the best-fit memory partition for the program
-    int bestPartition = findBestPartition(programSize, partitions);
 
-    if (bestPartition == -1) {
-        fprintf(logFile, "Error: No suitable partition found for program %s.\n", programName);
-        return;
-    }
-
-    // Clear the current memory partition associated with the PCB
-    if (currentPCB->partition > 0) {
-        int prevPartition = currentPCB->partition - 1; // Convert to 0-based index
-        strcpy(partitions[prevPartition].status, "free");
-        partitions[prevPartition].freeSpace = partitions[prevPartition].size;
-    }
-
-    // Load the program into the best-fit partition
-    strcpy(partitions[bestPartition].status, programName);
-    partitions[bestPartition].freeSpace -= programSize;
-
-    // Update the current PCB to reflect the new program
-    strcpy(currentPCB->programName, programName);
-    currentPCB->partition = bestPartition + 1; // Partition numbering starts from 1
+    // 4. updates the currentPCB with the new information
+    strcpy(currentPCB->programName, execEntry.programName);
+    currentPCB->partition = bestPartition;
     currentPCB->size = programSize;
     currentPCB->state = RUNNING;
 
-    // Log the EXEC process
-    int execDuration = rand() % 10 + 1; // Random duration between 1 and 10 ms for EXEC process
-    fprintf(logFile, "%d, %d, EXEC: load %s of size %d MB into partition %d\n",
-            *currentTime, execDuration, programName, programSize, bestPartition + 1);
-    *currentTime += execDuration;
+    fprintf(logFile, "%d, %d, updating PCB with new information\n", *currentTime, execDurations[3]);
+    *currentTime += execDurations[3];
 
-    // Call the scheduler (empty for now)
-    fprintf(logFile, "%d, 3, scheduler called\n", *currentTime);
-    *currentTime += 3;
+    // 5. Call the scheduler (empty for now)
+    fprintf(logFile, "%d, %d, scheduler called\n", *currentTime, execDurations[4]);
+    *currentTime += execDurations[4];
 
     // Log return from interrupt (IRET)
     fprintf(logFile, "%d, 1, IRET\n", *currentTime);
@@ -578,13 +595,13 @@ int main(int argc, char* argv[]) {
         if (strcmp(traceEntries[i].activity, "FORK") == 0) {
             handleFork(pcbList, executionFile, traceEntries[i], &currentTime);
         } else if (strcmp(traceEntries[i].activity, "EXEC") == 0) {
-            handleExec(traceEntries[i].programName, pcbList, partitions, externalFiles, externalFileCount, executionFile, &currentTime);
-            loadProgram(traceEntries[i].programName, pcbList, partitions, externalFiles, externalFileCount, executionFile, &currentTime);
+            handleExec(traceEntries[i], pcbList, partitions, externalFiles, externalFileCount, executionFile, &currentTime);
+            loadProgram(traceEntries[i], pcbList, partitions, externalFiles, externalFileCount, executionFile, &currentTime);
 
         }
 
         // Update system status after each operation
-        updateSystemStatus(statusFile, pcbList, &currentTime);
+            updateSystemStatus(statusFile, pcbList, &currentTime);
     }
 
 
