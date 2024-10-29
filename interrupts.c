@@ -326,7 +326,7 @@ void handleFork(PCB** currentPCB, MemoryPartition* partitions, FILE* logFile, Tr
     // should we copy the size of the current parent first before creating a new process it?
 
     // Create a new child PCB by copying the current PCB and add it to parent
-    PCB* childPCB = createPCB((*currentPCB)->pid + 1, "init", (*currentPCB)->partition, 1, *currentPCB);
+    PCB* childPCB = createPCB((*currentPCB)->pid + 1, "init", bestPartition, 1, *currentPCB);
     *currentPCB = (*currentPCB)->children;
     // Split duration of execution
     int numParts = 2;
@@ -624,9 +624,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Problems:
-    // fix current problem in memory partition when working in test 2, partition of 2nd init should be 1 rather than 4
     // see how the output of nexted FORK AND EXEC differ from non nested
-
 
     // Clean up
     fclose(executionFile);
