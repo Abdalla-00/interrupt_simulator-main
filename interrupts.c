@@ -80,7 +80,7 @@ int findProgramSize(ExternalFile* externalFiles,int externalFileCount, char* pro
     return -1;    
 } 
 
-// Creates a new PCB
+// Creates a new PCB and while assigning it to its parent
 PCB* createPCB(int pid, char* programName, int partition, int size, PCB* parent) {
     PCB* newPCB = (PCB*)malloc(sizeof(PCB));
     if (!newPCB) {
@@ -224,8 +224,8 @@ int loadExternalFiles(const char* filename, ExternalFile** externalFiles) {
 }
 
 // Dynamically loads the program from the program.txt file
-void loadProgram(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partitions, 
-                 ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime) {
+void loadProgram(TraceEntry execEntry, PCB** currentPCB, MemoryPartition* partitions, 
+                 ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime, FILE* statusFile, PCB* headPCB) {
     char programFileName[30];
     snprintf(programFileName, sizeof(programFileName), "%s.txt", execEntry.programName);
 
@@ -251,14 +251,18 @@ void loadProgram(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partiti
                 sscanf(line, "%[^,], %d", entry.activity, &entry.duration);
                 strcpy(entry.programName, "");  // Set program name to empty
                 TraceEntry forkEntry = entry;
-                handleFork(currentPCB, logFile, forkEntry, currentTime);
+                handleFork(currentPCB, partitions, logFile, forkEntry, currentTime);
+                updateSystemStatus(statusFile, headPCB, currentTime);
             } 
             // Parse EXEC
             else if (strncmp(line, "EXEC", 4) == 0) {
                 sscanf(line, "%[^ ] %[^,], %d", entry.activity, execProgramName, &entry.duration);
                 strncpy(entry.programName, execProgramName, sizeof(entry.programName) - 1);
                 entry.programName[sizeof(entry.programName) - 1] = '\0';  // Null-terminate
-                handleExec(execEntry, currentPCB, partitions, externalFiles, externalFileCount, logFile, currentTime);
+                handleExec(entry, *currentPCB, partitions, externalFiles, externalFileCount, logFile, currentTime);
+                loadProgram(entry, currentPCB, partitions, externalFiles, externalFileCount, logFile, currentTime, statusFile, headPCB);
+                updateSystemStatus(statusFile, headPCB, currentTime);
+
             }
         }
         // CPU, SYSCALL, and END_IO commands use SystemEntry structure
@@ -288,7 +292,7 @@ void loadProgram(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partiti
 }
 
 // Handles fork, creating a child PCB from the current process
-void handleFork(PCB* parentPCB, FILE* logFile, TraceEntry forkEntry, int* currentTime) {
+void handleFork(PCB** currentPCB, MemoryPartition* partitions, FILE* logFile, TraceEntry forkEntry, int* currentTime) {
     fprintf(logFile, "%d, 1, switch to kernel mode\n", *currentTime);
     *currentTime += 1;
 
@@ -304,9 +308,26 @@ void handleFork(PCB* parentPCB, FILE* logFile, TraceEntry forkEntry, int* curren
     fprintf(logFile, "%d, 1, load address 0x%04X into the PC\n", *currentTime, isrAddress);
     *currentTime += 1;
 
-    // Create a new child PCB by copying the current PCB
-    PCB* childPCB = createPCB(parentPCB->pid + 1, "init", parentPCB->partition, 1, parentPCB);
+    // find best suited partition and then modify the partition
+    int bestPartition, partitionIndex;
+    findBestPartition(1, partitions, &bestPartition, &partitionIndex);
+        if (bestPartition == -1) {
+        return;
+    }
 
+    // modify partition to show it's occupied
+    partitions[partitionIndex].freeSpace -= 1; // should this always be size of 1 or should it be current size of process?
+    if (partitions[partitionIndex].freeSpace == 0) // check if memory is full
+        strcpy(partitions[partitionIndex].status, "occupied");
+    else strcpy(partitions[partitionIndex].status, "free");
+
+
+    // will have to modify the fork function to pass the partitions as a parameter and everything else findBestPartition needs
+    // should we copy the size of the current parent first before creating a new process it?
+
+    // Create a new child PCB by copying the current PCB and add it to parent
+    PCB* childPCB = createPCB((*currentPCB)->pid + 1, "init", (*currentPCB)->partition, 1, *currentPCB);
+    *currentPCB = (*currentPCB)->children;
     // Split duration of execution
     int numParts = 2;
     int parts[2];
@@ -382,7 +403,6 @@ void handleExec(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partitio
 
     fprintf(logFile, "%d, %d, partition %d marked as occupied\n", *currentTime, execDurations[2], bestPartition);
     *currentTime += execDurations[2];
-
 
     // 4. updates the currentPCB with the new information
     strcpy(currentPCB->programName, execEntry.programName);
@@ -584,25 +604,28 @@ int main(int argc, char* argv[]) {
     }
 
     // Initialize the PCB list
-    PCB* pcbList = createPCB(0, "init", 6, 1, NULL);  // Initial process
+    PCB* headPCB = createPCB(0, "init", 6, 1, NULL);  // Initial process
+    PCB* currentPCB = headPCB;
     partitions[5].freeSpace -= 1;
     int currentTime = 0;
-    updateSystemStatus(statusFile, pcbList, &currentTime);
+    updateSystemStatus(statusFile, headPCB, &currentTime);
 
 
     // Process each trace entry
     for (int i = 0; i < traceCount; i++) {
         if (strcmp(traceEntries[i].activity, "FORK") == 0) {
-            handleFork(pcbList, executionFile, traceEntries[i], &currentTime);
+            handleFork(&currentPCB, partitions, executionFile, traceEntries[i], &currentTime); //pass currentPCB by refrence
+            updateSystemStatus(statusFile, headPCB, &currentTime);
         } else if (strcmp(traceEntries[i].activity, "EXEC") == 0) {
-            handleExec(traceEntries[i], pcbList, partitions, externalFiles, externalFileCount, executionFile, &currentTime);
-            loadProgram(traceEntries[i], pcbList, partitions, externalFiles, externalFileCount, executionFile, &currentTime);
+            handleExec(traceEntries[i], currentPCB, partitions, externalFiles, externalFileCount, executionFile, &currentTime);
+            loadProgram(traceEntries[i], &currentPCB, partitions, externalFiles, externalFileCount, executionFile, &currentTime, statusFile, headPCB);
 
         }
-
-        // Update system status after each operation
-            updateSystemStatus(statusFile, pcbList, &currentTime);
     }
+
+    // Problems:
+    // fix current problem in memory partition when working in test 2, partition of 2nd init should be 1 rather than 4
+    // see how the output of nexted FORK AND EXEC differ from non nested
 
 
     // Clean up

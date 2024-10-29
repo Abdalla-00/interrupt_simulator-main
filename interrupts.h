@@ -69,11 +69,11 @@ PCB* createPCB(int pid, char* programName, int partition, int size, PCB* parent)
 
 int loadTrace(const char* filename, TraceEntry** traceEntries);
 int loadExternalFiles(const char* filename, ExternalFile** externalFiles);
-void loadProgram(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partitions, ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime);
+void loadProgram(TraceEntry execEntry, PCB** currentPCB, MemoryPartition* partitions, ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime, FILE* statusFile, PCB* headPCB);
 void updateSystemStatus(FILE* statusFile, PCB* pcbList, int* currentTime);
 
 
-void handleFork(PCB* parentPCB, FILE* logFile, TraceEntry forkEntry, int* currentTime);
+void handleFork(PCB** parentPCB, MemoryPartition* partitions, FILE* logFile, TraceEntry forkEntry, int* currentTime);
 void handleExec(TraceEntry execEntry, PCB* currentPCB, MemoryPartition* partitions, ExternalFile* externalFiles, int externalFileCount, FILE* logFile, int* currentTime);
 
 void printTraceEntries(TraceEntry* traceEntries, int traceCount);
