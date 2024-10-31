@@ -3,7 +3,7 @@
 
 #include <stdio.h>
 
-#define VECTOR_TABLE_SIZE 25  // Size of the vector table
+#define VECTOR_TABLE_SIZE 26  // Size of the vector table
 #define MAX_PARTITIONS 6      // Number of memory partitions
 #define MAX_PROGRAM_NAME 20    // Maximum program name length
 

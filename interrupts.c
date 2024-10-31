@@ -12,12 +12,14 @@
 
 // The vector table will be hardcoded
 VectorEntry vectorTable[VECTOR_TABLE_SIZE] = {
-    {0, 0x01A3}, {1, 0x024D}, {2, 0x03F6}, {3, 0x05A9}, {4, 0x0467},
-    {5, 0x022B}, {6, 0x03D1}, {7, 0x0659}, {8, 0x027A}, {9, 0x04F2},
-    {10, 0x01EC}, {11, 0x0398}, {12, 0x05B4}, {13, 0x06AD}, {14, 0x02C9},
-    {15, 0x04C1}, {16, 0x071D}, {17, 0x0603}, {18, 0x0387}, {19, 0x06C4},
-    {20, 0x073E}, {21, 0x02B2}, {22, 0x03FD}, {23, 0x0568}, {24, 0x019F}
+    {0, 0x01E3}, {1, 0x029C}, {2, 0x0695}, {3, 0x042B}, {4, 0x0292},
+    {5, 0x048B}, {6, 0x0639}, {7, 0x00BD}, {8, 0x06EF}, {9, 0x036C},
+    {10, 0x07B0}, {11, 0x01F8}, {12, 0x03B9}, {13, 0x06C7}, {14, 0x0165},
+    {15, 0x0584}, {16, 0x02DF}, {17, 0x05B3}, {18, 0x060A}, {19, 0x0765},
+    {20, 0x07B7}, {21, 0x0523}, {22, 0x03B7}, {23, 0x028C}, {24, 0x05E8},
+    {25, 0x05D3}
 };
+
 
 // Initializes the memory partitions
 void initMemoryPartitions(MemoryPartition* partitions) {
@@ -260,8 +262,9 @@ void loadProgram(TraceEntry execEntry, PCB** currentPCB, MemoryPartition* partit
                 strncpy(entry.programName, execProgramName, sizeof(entry.programName) - 1);
                 entry.programName[sizeof(entry.programName) - 1] = '\0';  // Null-terminate
                 handleExec(entry, *currentPCB, partitions, externalFiles, externalFileCount, logFile, currentTime);
-                loadProgram(entry, currentPCB, partitions, externalFiles, externalFileCount, logFile, currentTime, statusFile, headPCB);
                 updateSystemStatus(statusFile, headPCB, currentTime);
+                loadProgram(entry, currentPCB, partitions, externalFiles, externalFileCount, logFile, currentTime, statusFile, headPCB);
+                // updateSystemStatus(statusFile, headPCB, currentTime);
 
             }
         }
@@ -447,19 +450,22 @@ void handleSysCall(int position, int duration, FILE* logFile, int* currentTime) 
     fprintf(logFile, "%d, 1, load address 0x%04X into the PC\n", *currentTime, isrAddress);
     *currentTime += 1;
 
+    // Split duration of ISR across running ISR, transferring data, and checking error time
+    int numParts = 3;
+    int parts[3];
+    randomSplit(duration, numParts, parts);
+
     // Simulate ISR execution
-    int isrDuration = rand() % 301 + 100; // Random ISR duration between 100 and 400 ms
-    fprintf(logFile, "%d, %d, SYSCALL: run the ISR\n", *currentTime, isrDuration);
-    *currentTime += isrDuration;
+    fprintf(logFile, "%d, %d, SYSCALL: run the ISR\n", *currentTime, parts[0]);
+    *currentTime += parts[0];
 
     // Simulate data transfer and error checking
-    int dataTransferDuration = rand() % 100 + 50; // Random data transfer time
-    fprintf(logFile, "%d, %d, transfer data\n", *currentTime, dataTransferDuration);
-    *currentTime += dataTransferDuration;
-
-    int errorCheckDuration = rand() % 100 + 50; // Random error check time
-    fprintf(logFile, "%d, %d, check for errors\n", *currentTime, errorCheckDuration);
-    *currentTime += errorCheckDuration;
+    fprintf(logFile, "%d, %d, transfer data\n", *currentTime, parts[1]);
+    *currentTime += parts[1];
+    
+    // check for errors
+    fprintf(logFile, "%d, %d, check for errors\n", *currentTime, parts[2]);
+    *currentTime += parts[2];
 
     // IRET (interrupt return)
     fprintf(logFile, "%d, 1, IRET\n", *currentTime);
@@ -618,8 +624,8 @@ int main(int argc, char* argv[]) {
             updateSystemStatus(statusFile, headPCB, &currentTime);
         } else if (strcmp(traceEntries[i].activity, "EXEC") == 0) {
             handleExec(traceEntries[i], currentPCB, partitions, externalFiles, externalFileCount, executionFile, &currentTime);
+            updateSystemStatus(statusFile, headPCB, &currentTime);
             loadProgram(traceEntries[i], &currentPCB, partitions, externalFiles, externalFileCount, executionFile, &currentTime, statusFile, headPCB);
-
         }
     }
 
