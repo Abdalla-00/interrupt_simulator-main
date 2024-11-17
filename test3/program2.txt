@@ -1,2 +1,0 @@
-FORK, 16
-EXEC program3, 58
