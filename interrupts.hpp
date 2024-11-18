@@ -6,18 +6,17 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <iomanip>
 using namespace std;
 
 
 #define VECTOR_TABLE_SIZE 26  // Size of the vector table
 #define MAX_PARTITIONS 6      // Number of memory partitions
-#define MAX_PROGRAM_NAME 20    // Maximum program name length
 
 // make sure to state assumption of how the trace information must be in order of process arival time
 // assumption is that we assume all process are created as if they hasven't arived yet (ie loaded into the ready queue)
 // then they are currently at the new state before arrival time
-
-// if a process is finished we terminate, if yet to be worked on, complete 
+// if a process is finished we terminate (partition is 0, we dont remove from PCB) (maybe ask question), if yet to be worked on, complete 
 
 
 typedef enum {NEW, READY, RUNNING, WAITING, TERMINATED} ProcessState;
@@ -56,19 +55,23 @@ typedef struct HeadTailPCB{
     unsigned int processCount;  // Number of processes in the list
 } HeadTailPCB;
 
+enum MemoryAction { ALLOCATE, FREE };  // Define actions
+
+typedef struct MemoryStatus {
+    int totalFreeMemory;
+    int usableFreeMemory;
+} MemoryStatus;
+
+// Static pointer to a single instance of MemoryStatus
+static MemoryStatus* memoryStatus = nullptr;
+
+// Helper to setup
 void initMemoryPartitions(MemoryPartition (&partitions)[MAX_PARTITIONS]);
-
 void initializeHeadTail(HeadTailPCB& list);
-
 vector<int> splitToNumbers (const string& str, char delim);
-
 void loadTrace(HeadTailPCB& list, ifstream& inputFile, string& line);
-
 void addPCBNode(HeadTailPCB& list, const vector<int>& PCBinfo);
-
 void freePCB(HeadTailPCB& list);
-
 void printPCB(const HeadTailPCB& list, ofstream& file);
-
 
 #endif

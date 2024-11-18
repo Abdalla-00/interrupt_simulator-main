@@ -1,5 +1,7 @@
 #include "interrupts.hpp"
 
+// Helper functions to initialize
+
 // Initializes the memory partitions, smallest partition at last index
 void initMemoryPartitions(MemoryPartition (&partitions)[MAX_PARTITIONS]) {
     int sizes[MAX_PARTITIONS] = {40, 25, 15, 10, 8, 2};
@@ -7,6 +9,20 @@ void initMemoryPartitions(MemoryPartition (&partitions)[MAX_PARTITIONS]) {
         partitions[i].partitionNumber = i + 1;
         partitions[i].size = sizes[i];
         partitions[i].OccupiedBy = -1;  // initialize all partitions to free
+    }
+}
+
+void initializeMemoryStatus() {
+    if (!memoryStatus) {
+        memoryStatus = new MemoryStatus;
+        memoryStatus->totalFreeMemory = 0;
+        memoryStatus->usableFreeMemory = 0;
+
+        // Calculate initial free memory
+        for (int i = 0; i < MAX_PARTITIONS; i++) {
+            memoryStatus->totalFreeMemory += memoryPartitions[i].size;
+            memoryStatus->usableFreeMemory += memoryPartitions[i].size;
+        }
     }
 }
 
@@ -86,21 +102,128 @@ void freePCB(HeadTailPCB& list){
     list.processCount = 0;
 }
 
-void printPCB(const HeadTailPCB& list, ofstream& file){
+// Helper functions for algorithms
+int findBestPartition(const int& memorySize){
 
-    for (PCB* temp = list.head; temp != nullptr; temp = temp->next){
-        
-        file << "PID: " << temp->pid
-             << ", Arrival Time: " << temp->arrivalTime
-             << ", Total CPU Time: " << temp->totalCPUTime
-             << ", Remaining CPU Time: " << temp->remainingCPUTime
-             << ", I/O Frequency: " << temp->ioFrequency
-             << ", I/O Duration: " << temp->ioDuration
-             << ", Memory Size: " << temp->memorySize
-             << ", Current State: " << temp->currentState
-             << ", Previous State: " << temp->prevState
-             << "\n";    }
+    for (int i = MAX_PARTITIONS - 1; i < 0; i--){
+        MemoryPartition partition = memoryPartitions[i];
+        if(partition.OccupiedBy == -1 && memorySize <= partition.size) return i + 1;
+    }
+    return -1;
 }
+
+void updateMemoryStatus(int partitionIndex, const PCB* pcb, MemoryAction action) {
+    if (!memoryStatus) return;  // Ensure memoryStatus is initialized
+
+    switch (action){
+        case ALLOCATE:
+            // Allocate the partition
+            memoryStatus->totalFreeMemory -= pcb->memorySize;
+            memoryStatus->usableFreeMemory -= memoryPartitions[partitionIndex].size;
+            memoryPartitions[partitionIndex].OccupiedBy = pcb->pid;        
+            break;
+
+        case FREE:
+            // Free the partition
+            memoryStatus->totalFreeMemory += pcb->memorySize;
+            memoryStatus->usableFreeMemory += memoryPartitions[partitionIndex].size;
+            memoryPartitions[partitionIndex].OccupiedBy = -1;
+            break;
+    }
+}
+
+
+// Helper to print
+void transitionState(PCB* process, ProcessState newState, int currentTime, ofstream& executionFile) {
+    static bool headerWritten = false;
+
+    // Write the table header once
+    if (!headerWritten) {
+        executionFile << "+------------------+--------+----------------+----------------+\n";
+        executionFile << "| Time (ms)       | PID    | Old State      | New State      |\n";
+        executionFile << "+------------------+--------+----------------+----------------+\n";
+        headerWritten = true;
+    }
+
+    // Write the transition data in table format
+    executionFile << "| " << setw(16) << currentTime
+                  << " | " << setw(6) << process->pid
+                  << " | " << setw(14) << process->currentState
+                  << " | " << setw(14) << newState
+                  << " |\n";
+
+    // Update the PCB's state
+    process->prevState = process->currentState;
+    process->currentState = newState;
+}
+
+void displayMemoryStatus(int currentTime, ofstream& memoryStatusFile) {
+    if (!memoryStatus) return;  // Ensure memoryStatus is initialized
+
+    // Header
+    memoryStatusFile << "+------------------+----------------+----------------+------------------------+\n";
+    memoryStatusFile << "| Time (ms)       | Total Free Mem | Usable Free Mem| Partition Status       |\n";
+    memoryStatusFile << "+------------------+----------------+----------------+------------------------+\n";
+
+    // Data Row
+    memoryStatusFile << "| " << setw(16) << currentTime
+                     << " | " << setw(14) << memoryStatus->totalFreeMemory
+                     << " | " << setw(14) << memoryStatus->usableFreeMemory
+                     << " | ";
+
+    for (int i = 0; i < MAX_PARTITIONS; i++) {
+        memoryStatusFile << setw(2) << memoryPartitions[i].OccupiedBy;
+        if (i < MAX_PARTITIONS - 1) memoryStatusFile << ", ";
+    }
+
+    memoryStatusFile << " |\n";
+    memoryStatusFile << "+------------------+----------------+----------------+------------------------+\n";
+}
+
+// Algorithms
+void runFCFSScheduler(HeadTailPCB& list, ofstream& executionFile, ofstream& memoryStatusFile) {
+    PCB* current = list.head;  // Start from the head of the PCB list
+    int currentTime = 0;       // Initialize simulation time
+
+    while (current) {
+        // Try to allocate memory for the current process
+        int partition = findBestPartition(current->memorySize);
+        if (partition != -1) {
+            // Memory successfully allocated; update memory status
+            updateMemoryStatus(partition - 1, current, ALLOCATE);
+            displayMemoryStatus(currentTime, memoryStatusFile);
+
+            // Transition process to READY state
+            transitionState(current, READY, currentTime, executionFile);
+
+            // Transition process to RUNNING state
+            transitionState(current, RUNNING, currentTime, executionFile);
+
+            // Simulate process execution
+            currentTime += current->totalCPUTime;
+
+            // Simulate I/O operations if applicable
+            if (current->ioFrequency > 0) {
+                int ioOccurrences = current->totalCPUTime / current->ioFrequency;
+                currentTime += ioOccurrences * current->ioDuration;
+            }
+
+            // Transition process to TERMINATED state
+            transitionState(current, TERMINATED, currentTime, executionFile);
+
+            // Release memory after process completion
+            updateMemoryStatus(partition - 1, current, FREE);
+            displayMemoryStatus(currentTime, memoryStatusFile);
+        } else {
+            // Memory not available; transition process to WAITING state
+            transitionState(current, WAITING, currentTime, executionFile);
+        }
+
+        // Move to the next process in the queue
+        current = current->next;
+    }
+}
+
 
 // Main function to load files and process the trace
 int main(int argc, char* argv[]) {
@@ -120,10 +243,10 @@ int main(int argc, char* argv[]) {
 
     // Initialize Memory
     initMemoryPartitions(memoryPartitions);
+    initializeMemoryStatus();
 
     // Load Data in Double Linked list
     string trace;
-    int current_time;
     HeadTailPCB list;
     initializeHeadTail(list);
     loadTrace(list, inputFile, trace);
@@ -134,16 +257,23 @@ int main(int argc, char* argv[]) {
         cerr << "Error generating execution.txt file" << endl;
         return 1;
     }
-    // ofstream output_memory_status("memory_status.txt");
+    ofstream output_memory_status("memory_status.txt");
+        if(!output_memory_status){
+        cerr << "Error generating memory_status.txt file" << endl;
+        return 1;
+    }
 
-    printPCB(list, output_execution_file);
+    // Run FCFS
+    runFCFSScheduler(list, output_execution_file, output_memory_status);
 
     // Close files
     output_execution_file.close();
+    output_memory_status.close();
     inputFile.close();
 
     // Delete allocated memory
     freePCB(list);
+    delete memoryStatus;
 
     return 0;
 }
