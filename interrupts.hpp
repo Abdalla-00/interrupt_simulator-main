@@ -37,7 +37,8 @@ typedef struct PCB {
     unsigned int totalCPUTime;      // Total CPU time required
     unsigned int remainingCPUTime;  // CPU time remaining
     unsigned int ioFrequency;       // Frequency of I/O operations
-    unsigned int ioDuration;        // Duration of each I/O operation
+    unsigned int initialIODuration; // Duration of each I/O operation
+    unsigned int ioDuration;        // Remaining Duration of each I/O operation
     int partition;                  // Partition number assigned (initialize to -1)
     ProcessState currentState;      // Current state of the process
     ProcessState prevState;         // Previous state of the process
