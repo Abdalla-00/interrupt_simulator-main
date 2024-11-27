@@ -1,3 +1,5 @@
 interrupts
 .vscode/
 .gitignore
+execution.txt
+memory_status.txt
