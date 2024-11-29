@@ -75,4 +75,6 @@ void addPCBNode(HeadTailPCB& list, const vector<int>& PCBinfo);
 void freePCB(HeadTailPCB& list);
 void printPCB(const HeadTailPCB& list, ofstream& file);
 
+string processStateToString(ProcessState state);
+
 #endif
