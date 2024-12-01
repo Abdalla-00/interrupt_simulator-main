@@ -342,23 +342,8 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
                 newTemp->partition = assignedPartition; // Assign PID its partition 
                 updateMemoryStatus(assignedPartition - 1, newTemp, ALLOCATE);
                 displayMemoryStatus(currentTime, memoryStatusFile);
-
-                // READY Queue empty, RUN process
-                if (runningProcess == nullptr){
-                    runningProcess->currentState = READY; // immediatley goes to ready queue
-                    transitionState(runningProcess, RUNNING, currentTime, executionFile); // starts executing
-                    appendPCB(newTemp, newQueue, readyQueue);
-                    newTemp->remainingCPUTime--;
-
-                    running = true;
-                    
-                    // Update response time running for 1st time
-                    if (runningProcess->responseTime == 0) runningProcess->responseTime = currentTime - runningProcess->arrivalTime;
-                } 
-                else {        // add to READY queue
-                    transitionState(newTemp, READY, currentTime, executionFile);
-                    appendPCB(newTemp, newQueue, readyQueue);
-                }
+                transitionState(newTemp, READY, currentTime, executionFile);
+                appendPCB(newTemp, newQueue, readyQueue);
                 
             } else{
                 break; // wasn't able to allocate memory
@@ -367,7 +352,7 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
         }
 
         // WAITING -> READY
-        while (waitTemp){
+        while (waitTemp) {
             PCB* nextTemp = waitTemp->next; // Saving next pointer to pcb in waiting queue
             waitTemp->ioDuration--;  // Decrement remaining I/O duration
 
@@ -375,21 +360,10 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
                 // Reset I/O duration for future bursts
                 waitTemp->ioDuration = waitTemp->initialIODuration;
 
-                ProcessState nextState = (runningProcess == nullptr) ? RUNNING : READY;
-
-                switch (nextState) {
-                    case RUNNING:
-                        transitionState(waitTemp, RUNNING, currentTime, executionFile);
-                        appendPCB(waitTemp, waitingQueue, readyQueue);
-                        waitTemp->remainingCPUTime--;
-                        break;
-
-                    case READY:
-                        transitionState(waitTemp, READY, currentTime, executionFile);
-                        appendPCB(waitTemp, waitingQueue, readyQueue);
-                        break;
-                }
+                transitionState(waitTemp, READY, currentTime, executionFile);
+                appendPCB(waitTemp, waitingQueue, readyQueue);  
             }
+            
             waitTemp = newTemp;
         }
 
@@ -408,7 +382,7 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
         }
         
         // READY -> RUNNING (execution)
-        if (runningProcess && executedFirst) {
+        if (runningProcess) {
             PCB* nextRunning = runningProcess->next;
 
             // Transition to RUNNING
@@ -423,27 +397,23 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
             runningProcess->remainingCPUTime--;
 
             // Check for process completion: RUNNING -> TERMINATED
-            if (runningProcess->remainingCPUTime == 0 && runningProcess->ioDuration == 0){
-                transitionState(runningProcess, TERMINATED, currentTime,executionFile);
+            if (runningProcess->remainingCPUTime == 0){
+                transitionState(runningProcess, TERMINATED, currentTime, executionFile);
                 updateMemoryStatus(runningProcess->partition -1, runningProcess, FREE);
                 displayMemoryStatus(currentTime, memoryStatusFile);
                 runningProcess->turnaroundTime = currentTime - runningProcess->arrivalTime;
                 popPCB(runningProcess, readyQueue); // removes PCB from the linked list and free's it
-                runningProcess = nextRunning;
-                if (runningProcess == nullptr) executedFirst = false; //execute from ready queue, move READY to RUNNING
-
-
             }
             // IO Burst: RUNNING -> WAITING
             else if((runningProcess->totalCPUTime - runningProcess->remainingCPUTime) % runningProcess->ioFrequency == 0){
                 transitionState(runningProcess, WAITING, currentTime, executionFile);
                 appendPCB(runningProcess, readyQueue, waitingQueue); // In FCFS I alwyas execut the beginning of the ready queue
             }
+            runningProcess = nextRunning;
         }
         currentTime++;
     }
 }
-
 
 // Main function to load files and process the trace
 int main(int argc, char* argv[]) {
@@ -509,7 +479,7 @@ int main(int argc, char* argv[]) {
     // freePCB(list);
     delete memoryStatus;
 
-    return 0;
+    return 1;
 }
 
 
