@@ -164,7 +164,7 @@ void transitionState(PCB* process, ProcessState newState, const int currentTime,
                   << " | " << setw(14) << processStateToString(process->currentState)
                   << " | " << setw(14) << processStateToString(newState)
                   << " |\n";
-
+    executionFile.flush();
     process->currentState = newState;
 }
 
@@ -276,9 +276,9 @@ void popPCB(PCB* pcb, HeadTailPCB& queue) {
 
 void debugPrintPCBList(const HeadTailPCB& list) {
     PCB* current = list.head;  // Start from the head of the list
-    cout << "+--------------------------------------------------------------------------+" << endl;
-    cout << "| PID   | Arrival | Total CPU | Remaining CPU | I/O Freq | I/O Dur | MemSize |" << endl;
-    cout << "+--------------------------------------------------------------------------+" << endl;
+    cout << "+-----------------------------------------------------------------------------+" << endl;
+    cout << "|  PID   | Arrival | Total CPU | Remaining CPU | I/O Freq | I/O Dur | MemSize |" << endl;
+    cout << "+-----------------------------------------------------------------------------+" << endl;
 
     while (current) {
         cout << "| " << setw(6) << current->pid
@@ -293,7 +293,7 @@ void debugPrintPCBList(const HeadTailPCB& list) {
         current = current->next;  // Move to the next PCB in the list
     }
 
-    cout << "+--------------------------------------------------------------------------+" << endl;
+    cout << "+-----------------------------------------------------------------------------+" << endl;
     cout << "Total processes: " << list.processCount << endl;
 }
 
@@ -380,11 +380,11 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
         if (runningProcess) {
             PCB* nextRunning = runningProcess->next;
 
-            // Transition to RUNNING
-            transitionState(runningProcess, RUNNING, currentTime, executionFile);
+            // Transition to RUNNING if not runnin
+            if (runningProcess->currentState != RUNNING) transitionState(runningProcess, RUNNING, currentTime, executionFile);
 
             // Update response time if this is the first time the process runs
-            if (runningProcess->responseTime == 0) {
+            if ( runningProcess->totalCPUTime == runningProcess->remainingCPUTime) {
                 runningProcess->responseTime = currentTime - runningProcess->arrivalTime;
             }
             
