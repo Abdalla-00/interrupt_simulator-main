@@ -3,3 +3,4 @@ interrupts
 .gitignore
 execution.txt
 memory_status.txt
+.tests/

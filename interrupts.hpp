@@ -30,6 +30,10 @@ typedef struct MemoryPartition{
 
 static MemoryPartition memoryPartitions[MAX_PARTITIONS]; // Fixed memory partition
 
+static ofstream simulationData("simulation_data.txt");
+long currentTime = 0;
+
+
 // PCB
 typedef struct PCB {
     unsigned int pid;               // Process ID

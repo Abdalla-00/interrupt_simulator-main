@@ -140,7 +140,7 @@ void displayMemoryStatus(int currentTime, ofstream& memoryStatusFile) {
     }
 
     // Add padding to align Partition State column
-    memoryStatusFile << setw(32 - (4 * MAX_PARTITIONS)) << " | ";
+    memoryStatusFile << setw(32 - (4 * MAX_PARTITIONS)) << "| ";
 
     // Append total free memory and usable free memory
     memoryStatusFile << setw(10) << memoryStatus->totalFreeMemory << setw(10) << " | "
@@ -180,7 +180,7 @@ string processStateToString(const ProcessState state){
     }
 }
 
-// Appends a PCB to the tail of the queue, removing it from its current queue if necessary
+// Appends a PCB for FCFS
 void appendPCB(PCB* pcb, HeadTailPCB& fromQueue, HeadTailPCB& toQueue) {
     if (!pcb) return;  // If PCB is null, no operation is needed
 
@@ -245,9 +245,109 @@ void appendPCB(PCB* pcb, HeadTailPCB& fromQueue, HeadTailPCB& toQueue) {
     toQueue.processCount++;
 }
 
+void appendPCBByPriority(PCB* pcb, HeadTailPCB& fromQueue, HeadTailPCB& toQueue) {
+    if (!pcb) return; // No operation if PCB is null
+
+    // --- Remove PCB from `fromQueue` (if applicable) ---
+    if (fromQueue.head == pcb && fromQueue.tail == pcb) {
+        fromQueue.head = nullptr;
+        fromQueue.tail = nullptr;
+    } else if (fromQueue.head == pcb) {
+        fromQueue.head = pcb->next;
+        if (fromQueue.head) {
+            fromQueue.head->prev = nullptr; // Update the new head's prev pointer
+        }
+    } else if (fromQueue.tail == pcb) {
+        fromQueue.tail = pcb->prev;
+        if (fromQueue.tail) {
+            fromQueue.tail->next = nullptr; // Update the new tail's next pointer
+        }
+    } else {
+        if (pcb->prev) pcb->prev->next = pcb->next; // Link the previous node to the next node
+        if (pcb->next) pcb->next->prev = pcb->prev; // Link the next node to the previous node
+    }
+    fromQueue.processCount--;
+
+    // Disconnect the PCB from the current queue
+    pcb->next = nullptr;
+    pcb->prev = nullptr;
+
+    // --- Insert PCB into `toQueue` by priority ---
+    if (!toQueue.head) {
+        // Case 1: `toQueue` is empty
+        toQueue.head = pcb;
+        toQueue.tail = pcb;
+    } else {
+        PCB* current = toQueue.head;
+
+        // Case 2: `toQueue.head` is in the RUNNING state
+        // Skip over the head if it is running (non-preemption ensures head is never replaced)
+        if (current->currentState == RUNNING) {
+            while (current->next && current->next->totalCPUTime <= pcb->totalCPUTime) {
+                current = current->next; // Traverse the queue to find the correct position
+            }
+
+            // Insert the PCB after the `current` node
+            pcb->next = current->next;
+            pcb->prev = current;
+            if (current->next) {
+                current->next->prev = pcb;
+            } else {
+                // If inserting at the tail, update `toQueue.tail`
+                toQueue.tail = pcb;
+            }
+            current->next = pcb;
+        } else {
+            // Case 3: Insert PCB in sorted order (smallest to greatest `totalCPUTime`)
+            while (current && current->totalCPUTime <= pcb->totalCPUTime) {
+                current = current->next;
+            }
+
+            if (!current) {
+                // Insert at the end of the queue
+                pcb->prev = toQueue.tail;
+                toQueue.tail->next = pcb;
+                toQueue.tail = pcb;
+            } else if (current == toQueue.head) {
+                // Insert at the beginning of the queue
+                pcb->next = toQueue.head;
+                toQueue.head->prev = pcb;
+                toQueue.head = pcb;
+            } else {
+                // Insert in the middle of the queue
+                pcb->next = current;
+                pcb->prev = current->prev;
+                if (current->prev) current->prev->next = pcb;
+                current->prev = pcb;
+            }
+        }
+    }
+
+    // Update the `toQueue` process count
+    toQueue.processCount++;
+}
+
+
 // Pops the PCB at the head of the queue, handling all edge cases for linked list management
 void popPCB(PCB* pcb, HeadTailPCB& queue) {
     if (!pcb || !queue.head) return;  // If PCB or queue is null/empty, no operation is needed
+
+    // --- Collect PCB data into simulationData ---
+    if (simulationData.is_open()) {
+        simulationData << "PID: " << pcb->pid
+                       << ", ArrivalTime: " << pcb->arrivalTime
+                       << ", TotalCPUTime: " << pcb->totalCPUTime
+                       << ", TurnaroundTime: " << pcb->turnaroundTime
+                       << ", WaitTime: " << pcb->waitTime
+                       << ", ResponseTime: " << pcb->responseTime
+                       << ", ioDuration: " << pcb->initialIODuration
+                       << ", ioFrequency: " << pcb->ioFrequency
+                       << ", MemorySize: " << pcb->memorySize
+                       << ", MemoryPartition: " << (pcb->partition == -1 ? "None" : to_string(pcb->partition))
+                       << endl;
+    } else {
+        cerr << "Error: Could not write to simulationData file." << endl;
+    }
 
     // --- Removing PCB from `queue` ---
 
@@ -313,12 +413,9 @@ void freePCB(HeadTailPCB& list){
 }
 
 
-
 // Algorithms
 void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& memoryStatusFile) {
-
-    long currentTime = 0;
-    
+   
     HeadTailPCB waitingQueue, readyQueue;   // WAITING & READY 
     initializeHeadTail(waitingQueue);
     initializeHeadTail(readyQueue);
@@ -356,7 +453,7 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
                 // Reset I/O duration for future bursts
                 waitingQueue.head->ioDuration = waitingQueue.head->initialIODuration;
 
-                transitionState(waitingQueue.head, READY, currentTime, executionFile);
+                transitionState(waitingQueue.head, READY, currentTime + 1, executionFile);
                 appendPCB(waitingQueue.head, waitingQueue, readyQueue);  
             }
             waitTemp = nextTemp;
@@ -393,21 +490,101 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
 
             // Check for process completion: RUNNING -> TERMINATED
             if (runningProcess->remainingCPUTime == 0){
-                transitionState(runningProcess, TERMINATED, currentTime, executionFile);
+                transitionState(runningProcess, TERMINATED, currentTime + 1, executionFile);
                 updateMemoryStatus(runningProcess->partition -1, runningProcess, FREE);
-                displayMemoryStatus(currentTime, memoryStatusFile);
-                runningProcess->turnaroundTime = currentTime - runningProcess->arrivalTime;
+                displayMemoryStatus(currentTime + 1, memoryStatusFile);
+                runningProcess->turnaroundTime = currentTime + 1 - runningProcess->arrivalTime;
                 popPCB(runningProcess, readyQueue); // removes PCB from the linked list and free's it
             }
             // IO Burst: RUNNING -> WAITING
             else if((runningProcess->totalCPUTime - runningProcess->remainingCPUTime) % runningProcess->ioFrequency == 0){
-                transitionState(runningProcess, WAITING, currentTime, executionFile);
+                transitionState(runningProcess, WAITING, currentTime + 1, executionFile);
                 appendPCB(runningProcess, readyQueue, waitingQueue); // In FCFS I alwyas execut the beginning of the ready queue
             }
         }
         currentTime++;
     }
 }
+
+void runPriorityScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& memoryStatusFile) {
+
+    HeadTailPCB waitingQueue, readyQueue;
+    initializeHeadTail(waitingQueue);
+    initializeHeadTail(readyQueue);
+
+    while (newQueue.head || waitingQueue.head || readyQueue.head) {
+
+        // --- NEW -> READY ---
+        while (newQueue.head && newQueue.head->arrivalTime == currentTime) {
+            PCB* nextTemp = newQueue.head->next; // Save the next PCB
+
+            int assignedPartition = findBestPartition(newQueue.head->memorySize);
+            if (assignedPartition != -1) {
+                newQueue.head->partition = assignedPartition;
+                updateMemoryStatus(assignedPartition - 1, newQueue.head, ALLOCATE);
+                displayMemoryStatus(currentTime, memoryStatusFile);
+                transitionState(newQueue.head, READY, currentTime, executionFile);
+                appendPCBByPriority(newQueue.head, newQueue, readyQueue);
+            }
+            newQueue.head = nextTemp; // Move to the next PCB in `newQueue`
+        }
+
+        // --- WAITING -> READY ---
+        PCB* waitTemp = waitingQueue.head;
+        while (waitTemp) {
+            PCB* nextTemp = waitTemp->next; // Save the next PCB
+            waitTemp->ioDuration--;         // Decrement remaining I/O duration
+
+            if (waitTemp->ioDuration == 0) {
+                waitTemp->ioDuration = waitTemp->initialIODuration; // Reset I/O duration
+                transitionState(waitTemp, READY, currentTime + 1, executionFile);
+                appendPCBByPriority(waitTemp, waitingQueue, readyQueue);
+            }
+            waitTemp = nextTemp; // Move to the next PCB
+        }
+
+        // --- Increment Wait Time for All Except the Running Process ---
+        PCB* readyTemp = readyQueue.head;
+        if (readyTemp) readyTemp = readyTemp->next; // Skip the running process
+        while (readyTemp) {
+            readyTemp->waitTime++;
+            readyTemp = readyTemp->next;
+        }
+
+        // --- READY -> RUNNING ---
+        PCB* runningProcess = readyQueue.head;
+        if (runningProcess) {
+            PCB* nextRunning = runningProcess->next;
+
+            if (runningProcess->currentState != RUNNING) {
+                transitionState(runningProcess, RUNNING, currentTime, executionFile);
+            }
+
+            if (runningProcess->totalCPUTime == runningProcess->remainingCPUTime) {
+                runningProcess->responseTime = currentTime - runningProcess->arrivalTime;
+            }
+
+            runningProcess->remainingCPUTime--;
+
+            // --- RUNNING -> TERMINATED ---
+            if (runningProcess->remainingCPUTime == 0) {
+                transitionState(runningProcess, TERMINATED, currentTime + 1, executionFile);
+                updateMemoryStatus(runningProcess->partition - 1, runningProcess, FREE);
+                displayMemoryStatus(currentTime  + 1, memoryStatusFile);
+                runningProcess->turnaroundTime = currentTime  + 1 - runningProcess->arrivalTime;
+                popPCB(runningProcess, readyQueue); // Remove PCB from `readyQueue`
+            }
+            // --- RUNNING -> WAITING ---
+            else if ((runningProcess->totalCPUTime - runningProcess->remainingCPUTime) % runningProcess->ioFrequency == 0) {
+                transitionState(runningProcess, WAITING, currentTime + 1, executionFile);
+                appendPCBByPriority(runningProcess, readyQueue, waitingQueue);
+            }
+        }
+
+        currentTime++;
+    }
+}
+
 
 // Main function to load files and process the trace
 int main(int argc, char* argv[]) {
@@ -456,7 +633,7 @@ int main(int argc, char* argv[]) {
     if (algorithm == "FCFS") {
         runFCFSScheduler(list, output_execution_file, output_memory_status);
     } else if (algorithm == "PR") {
-        cerr << "Priority scheduling (PR) not implemented yet." << endl;
+        runPriorityScheduler(list, output_execution_file, output_memory_status);
     } else if (algorithm == "RR") {
         cerr << "Round Robin scheduling (RR) not implemented yet." << endl;
     } else {
@@ -466,10 +643,11 @@ int main(int argc, char* argv[]) {
 
 
     output_memory_status << "+-------------------------------------------------------------------------------------------------------------+";
-    output_execution_file << "+--------------------------------------------------------------+";
-
+    output_execution_file << "+-------------------------------------------------------------+";
+    simulationData << currentTime;
 
     // Close files
+    simulationData.close();
     output_execution_file.close();
     output_memory_status.close();
     inputFile.close();
