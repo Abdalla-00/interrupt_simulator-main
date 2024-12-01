@@ -88,25 +88,6 @@ void addPCBNode(HeadTailPCB& list, const vector<int>& PCBinfo){
     list.processCount++;
 }
 
-
-
-
-void freePCB(HeadTailPCB& list){
-
-    PCB* current = list.head;
-    while (current) {
-        PCB* temp = current;  // Store the current node
-        current = current->next;  // Move to the next node
-        delete(temp);  // Free the memory of the current node
-    }
-
-    // Reset the head, tail, and process count
-    list.head = nullptr;
-    list.tail = nullptr;
-    list.processCount = 0;
-}
-
-
 // Helper functions for algorithms
 int findBestPartition(const int& memorySize){
 
@@ -166,8 +147,6 @@ void displayMemoryStatus(int currentTime, ofstream& memoryStatusFile) {
 
     memoryStatusFile << "+--------------------------------------------------------------------------------------------+\n";
 }
-
-
 
 void transitionState(PCB* process, ProcessState newState, const int currentTime, ofstream& executionFile) {
     static bool headerWritten = false;
@@ -317,24 +296,38 @@ void debugPrintPCBList(const HeadTailPCB& list) {
     cout << "Total processes: " << list.processCount << endl;
 }
 
+void freePCB(HeadTailPCB& list){
+
+    PCB* current = list.head;
+    while (current) {
+        PCB* temp = current;  // Store the current node
+        current = current->next;  // Move to the next node
+        delete(temp);  // Free the memory of the current node
+    }
+
+    // Reset the head, tail, and process count
+    list.head = nullptr;
+    list.tail = nullptr;
+    list.processCount = 0;
+}
+
 
 
 // Algorithms
 void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& memoryStatusFile) {
 
+    long currentTime = 0;
+    
     HeadTailPCB waitingQueue, readyQueue;   // WAITING & READY 
-
     initializeHeadTail(waitingQueue);
     initializeHeadTail(readyQueue);
 
-    long currentTime = 0;                    // current time
+    PCB* newTemp = newQueue.head;
+    PCB* waitTemp = waitingQueue.head;
+    PCB* readyTemp = readyQueue.head;
+    PCB* runningProcess = readyQueue.head;
 
-        PCB* newTemp = newQueue.head;
-        PCB* waitTemp = waitingQueue.head;
-        PCB* readyTemp = readyQueue.head;
-        PCB* runningProcess = readyQueue.head;
-
-        static bool executedFirst = false;
+    static bool running = false;
 
 
     // exists a process in all queues that is yet to be executed (execute if any of them are true)
@@ -349,21 +342,24 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
                 newTemp->partition = assignedPartition; // Assign PID its partition 
                 updateMemoryStatus(assignedPartition - 1, newTemp, ALLOCATE);
                 displayMemoryStatus(currentTime, memoryStatusFile);
-            
-                // Update response time if this is the first time the process runs
-                if (runningProcess == nullptr && !executedFirst){ // READY queue will execute immediatley and won't wait for process
-                    executedFirst = true; 
-                    // Transition to RUNNING
-                    transitionState(runningProcess, RUNNING, currentTime, executionFile);
 
-                    if (runningProcess->responseTime == 0) runningProcess->responseTime = currentTime - runningProcess->arrivalTime;
-                    runningProcess->remainingCPUTime--;
+                // READY Queue empty, RUN process
+                if (runningProcess == nullptr){
+                    runningProcess->currentState = READY; // immediatley goes to ready queue
+                    transitionState(runningProcess, RUNNING, currentTime, executionFile); // starts executing
+                    appendPCB(newTemp, newQueue, readyQueue);
+                    newTemp->remainingCPUTime--;
+
+                    running = true;
                     
-                } else {
+                    // Update response time running for 1st time
+                    if (runningProcess->responseTime == 0) runningProcess->responseTime = currentTime - runningProcess->arrivalTime;
+                } 
+                else {        // add to READY queue
                     transitionState(newTemp, READY, currentTime, executionFile);
                     appendPCB(newTemp, newQueue, readyQueue);
                 }
-
+                
             } else{
                 break; // wasn't able to allocate memory
             }
@@ -379,22 +375,36 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
                 // Reset I/O duration for future bursts
                 waitTemp->ioDuration = waitTemp->initialIODuration;
 
-                // Transition to READY
-                transitionState(waitTemp, READY, currentTime, executionFile);
-                appendPCB(waitTemp, waitingQueue, readyQueue);
+                ProcessState nextState = (runningProcess == nullptr) ? RUNNING : READY;
+
+                switch (nextState) {
+                    case RUNNING:
+                        transitionState(waitTemp, RUNNING, currentTime, executionFile);
+                        appendPCB(waitTemp, waitingQueue, readyQueue);
+                        waitTemp->remainingCPUTime--;
+                        break;
+
+                    case READY:
+                        transitionState(waitTemp, READY, currentTime, executionFile);
+                        appendPCB(waitTemp, waitingQueue, readyQueue);
+                        break;
+                }
             }
             waitTemp = newTemp;
         }
 
-        // Increment waitTime for all processes in ready Queue
+        // Increment waitTime for all processes in ready Queue expect one currently executing
         bool isFirst = true;
 
         while (readyTemp){
-            if (isFirst) {
-                readyTemp = readyTemp->next; }
+            if (isFirst) readyTemp = readyTemp->next; 
             
-            isFirst = false;
-            readyTemp->waitTime++;           
+            // Process waiting in ready queue
+            if (readyTemp != nullptr){
+                isFirst = false;
+                readyTemp->waitTime++;
+                readyTemp = readyTemp->next;
+            }        
         }
         
         // READY -> RUNNING (execution)
