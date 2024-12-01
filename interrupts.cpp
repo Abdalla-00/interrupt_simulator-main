@@ -123,14 +123,15 @@ void displayMemoryStatus(int currentTime, ofstream& memoryStatusFile) {
 
     // Write header for the table once
     if (!headerWritten) {
-        memoryStatusFile << "+--------------------------------------------------------------------------------------------+\n";
-        memoryStatusFile << "| Time of Event |          Partition State          | Total Free Memory | Usable Free Memory |\n";
-        memoryStatusFile << "+--------------------------------------------------------------------------------------------+\n";
+        memoryStatusFile << "+-------------------------------------------------------------------------------------------------------------+\n";
+        memoryStatusFile << "| Time of Event |  Memory Used    |         Partition State          | Total Free Memory | Usable Free Memory |\n";
+        memoryStatusFile << "+-------------------------------------------------------------------------------------------------------------+\n";
         headerWritten = true;
     }
 
     // Data Row
     memoryStatusFile << "| " << setw(13) << currentTime << " | ";
+    memoryStatusFile << setw(13) << 100 - memoryStatus->totalFreeMemory  << "   | ";
 
     // Display memory usage for each partition
     for (int i = 0; i < MAX_PARTITIONS; i++) {
@@ -143,9 +144,7 @@ void displayMemoryStatus(int currentTime, ofstream& memoryStatusFile) {
 
     // Append total free memory and usable free memory
     memoryStatusFile << setw(10) << memoryStatus->totalFreeMemory << setw(10) << " | "
-                     << setw(10) << memoryStatus->usableFreeMemory << setw(10) << " |\n";
-
-    memoryStatusFile << "+--------------------------------------------------------------------------------------------+\n";
+                     << setw(10) << memoryStatus->usableFreeMemory << setw(10) << "   |\n";
 }
 
 void transitionState(PCB* process, ProcessState newState, const int currentTime, ofstream& executionFile) {
@@ -153,9 +152,9 @@ void transitionState(PCB* process, ProcessState newState, const int currentTime,
 
     // Write the table header once
     if (!headerWritten) {
-        executionFile << "+------------------+--------+----------------+----------------+\n";
-        executionFile << "|    Time (ms)     | PID     | Old State       | New State    |\n";
-        executionFile << "+------------------+--------+----------------+----------------+\n";
+        executionFile << "+-------------------------------------------------------------+\n";
+        executionFile << "|    Time (ms)     | PID    |  Old State     |   New State    |\n";
+        executionFile << "+-------------------------------------------------------------+\n";
         headerWritten = true;
     }
 
@@ -165,6 +164,8 @@ void transitionState(PCB* process, ProcessState newState, const int currentTime,
                   << " | " << setw(14) << processStateToString(process->currentState)
                   << " | " << setw(14) << processStateToString(newState)
                   << " |\n";
+
+    process->currentState = newState;
 }
 
 string processStateToString(const ProcessState state){
@@ -321,67 +322,61 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
     HeadTailPCB waitingQueue, readyQueue;   // WAITING & READY 
     initializeHeadTail(waitingQueue);
     initializeHeadTail(readyQueue);
-
-    PCB* newTemp = newQueue.head;
-    PCB* waitTemp = waitingQueue.head;
-    PCB* readyTemp = readyQueue.head;
-    PCB* runningProcess = readyQueue.head;
-
-    static bool running = false;
+    displayMemoryStatus(currentTime, memoryStatusFile);
 
 
     // exists a process in all queues that is yet to be executed (execute if any of them are true)
     while (newQueue.head || waitingQueue.head || readyQueue.head) {     
 
         // NEW -> READY
-        while (newTemp && newTemp->arrivalTime == currentTime){
-            PCB* nextTemp = newTemp->next; // Save the next element before modifyiing list moving pcb from NEW to READY
+        while (newQueue.head && newQueue.head->arrivalTime == currentTime){
+            PCB* nextTemp = newQueue.head->next; // Save the next element before modifyiing list moving pcb from NEW to READY
 
-            int assignedPartition = findBestPartition(newTemp->memorySize);
+            int assignedPartition = findBestPartition(newQueue.head->memorySize);
             if (assignedPartition != -1){
-                newTemp->partition = assignedPartition; // Assign PID its partition 
-                updateMemoryStatus(assignedPartition - 1, newTemp, ALLOCATE);
+                newQueue.head->partition = assignedPartition; // Assign PID its partition 
+                updateMemoryStatus(assignedPartition - 1, newQueue.head, ALLOCATE);
                 displayMemoryStatus(currentTime, memoryStatusFile);
-                transitionState(newTemp, READY, currentTime, executionFile);
-                appendPCB(newTemp, newQueue, readyQueue);
+                transitionState(newQueue.head, READY, currentTime, executionFile);
+                appendPCB(newQueue.head, newQueue, readyQueue);
                 
             } else{
                 break; // wasn't able to allocate memory
             }
-            newTemp = nextTemp;
+            newQueue.head = nextTemp;
         }
 
         // WAITING -> READY
+        PCB* waitTemp = waitingQueue.head; // since the head of WAITING queue can chane each cycle
         while (waitTemp) {
             PCB* nextTemp = waitTemp->next; // Saving next pointer to pcb in waiting queue
-            waitTemp->ioDuration--;  // Decrement remaining I/O duration
+            waitingQueue.head->ioDuration--;  // Decrement remaining I/O duration
 
-            if (waitTemp->ioDuration == 0) {
+            if (waitingQueue.head->ioDuration == 0) {
                 // Reset I/O duration for future bursts
-                waitTemp->ioDuration = waitTemp->initialIODuration;
+                waitingQueue.head->ioDuration = waitingQueue.head->initialIODuration;
 
-                transitionState(waitTemp, READY, currentTime, executionFile);
-                appendPCB(waitTemp, waitingQueue, readyQueue);  
+                transitionState(waitingQueue.head, READY, currentTime, executionFile);
+                appendPCB(waitingQueue.head, waitingQueue, readyQueue);  
             }
-            
-            waitTemp = newTemp;
+            waitTemp = nextTemp;
         }
 
-        // Increment waitTime for all processes in ready Queue expect one currently executing
-        bool isFirst = true;
+        // Increment waitTime for all processes in readyQueue except the first (runningProcess)
+        PCB* readyTemp = readyQueue.head;
 
+        // Skip the first PCB in the readyQueue (runningProcess)
+        if (readyTemp) { readyTemp = readyTemp->next; }
+
+        // Increment waitTime fot all remaining PCBs in the readyQueue
         while (readyTemp){
-            if (isFirst) readyTemp = readyTemp->next; 
-            
-            // Process waiting in ready queue
-            if (readyTemp != nullptr){
-                isFirst = false;
                 readyTemp->waitTime++;
                 readyTemp = readyTemp->next;
             }        
-        }
+    
         
         // READY -> RUNNING (execution)
+        PCB* runningProcess = readyQueue.head;
         if (runningProcess) {
             PCB* nextRunning = runningProcess->next;
 
@@ -409,7 +404,6 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
                 transitionState(runningProcess, WAITING, currentTime, executionFile);
                 appendPCB(runningProcess, readyQueue, waitingQueue); // In FCFS I alwyas execut the beginning of the ready queue
             }
-            runningProcess = nextRunning;
         }
         currentTime++;
     }
@@ -469,6 +463,11 @@ int main(int argc, char* argv[]) {
         cerr << "Unknown scheduling algorithm: " << algorithm << endl;
         return 1;
     }
+
+
+    output_memory_status << "+-------------------------------------------------------------------------------------------------------------+";
+    output_execution_file << "+--------------------------------------------------------------+";
+
 
     // Close files
     output_execution_file.close();
