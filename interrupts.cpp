@@ -145,6 +145,7 @@ void displayMemoryStatus(int currentTime, ofstream& memoryStatusFile) {
     // Append total free memory and usable free memory
     memoryStatusFile << setw(10) << memoryStatus->totalFreeMemory << setw(10) << " | "
                      << setw(10) << memoryStatus->usableFreeMemory << setw(10) << "   |\n";
+    memoryStatusFile.flush();
 }
 
 void transitionState(PCB* process, ProcessState newState, const int currentTime, ofstream& executionFile) {
@@ -180,7 +181,7 @@ string processStateToString(const ProcessState state){
     }
 }
 
-// Appends a PCB for FCFS
+// Appends a PCB  to end of FCFS Queue
 void appendPCB(PCB* pcb, HeadTailPCB& fromQueue, HeadTailPCB& toQueue) {
     if (!pcb) return;  // If PCB is null, no operation is needed
 
@@ -245,6 +246,7 @@ void appendPCB(PCB* pcb, HeadTailPCB& fromQueue, HeadTailPCB& toQueue) {
     toQueue.processCount++;
 }
 
+// Appends based on priority: Totlal CPU time
 void appendPCBByPriority(PCB* pcb, HeadTailPCB& fromQueue, HeadTailPCB& toQueue) {
     if (!pcb) return; // No operation if PCB is null
 
@@ -327,6 +329,27 @@ void appendPCBByPriority(PCB* pcb, HeadTailPCB& fromQueue, HeadTailPCB& toQueue)
     toQueue.processCount++;
 }
 
+// Shifts PCB to tail of ready queue after RR Quantum is up
+void shiftPCBToTail(HeadTailPCB& queue) {
+    if (!queue.head || queue.head == queue.tail) return;  // No operation if the queue is empty or has only one PCB
+
+    PCB* currentHead = queue.head;  // Save the current head
+
+    // Update the head to the next PCB
+    queue.head = currentHead->next;
+    if (queue.head) {
+        queue.head->prev = nullptr;  // Disconnect the new head's `prev` pointer
+    }
+
+    // Move the current head to the tail
+    currentHead->next = nullptr;    // Disconnect the current head's `next` pointer
+    currentHead->prev = queue.tail; // Link the current head to the current tail
+    if (queue.tail) {
+        queue.tail->next = currentHead; // Link the current tail to the current head
+    }
+    queue.tail = currentHead;  // Update the tail pointer
+}
+
 
 // Pops the PCB at the head of the queue, handling all edge cases for linked list management
 void popPCB(PCB* pcb, HeadTailPCB& queue) {
@@ -372,8 +395,6 @@ void popPCB(PCB* pcb, HeadTailPCB& queue) {
     delete pcb;
 }
 
-
-
 void debugPrintPCBList(const HeadTailPCB& list) {
     PCB* current = list.head;  // Start from the head of the list
     cout << "+-----------------------------------------------------------------------------+" << endl;
@@ -412,7 +433,6 @@ void freePCB(HeadTailPCB& list){
     list.processCount = 0;
 }
 
-
 // Algorithms
 void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& memoryStatusFile) {
    
@@ -426,7 +446,7 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
     while (newQueue.head || waitingQueue.head || readyQueue.head) {     
 
         // NEW -> READY
-        while (newQueue.head && newQueue.head->arrivalTime == currentTime){
+        while (newQueue.head && newQueue.head->arrivalTime <= currentTime){
             PCB* nextTemp = newQueue.head->next; // Save the next element before modifyiing list moving pcb from NEW to READY
 
             int assignedPartition = findBestPartition(newQueue.head->memorySize);
@@ -453,7 +473,7 @@ void runFCFSScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& 
                 // Reset I/O duration for future bursts
                 waitingQueue.head->ioDuration = waitingQueue.head->initialIODuration;
 
-                transitionState(waitingQueue.head, READY, currentTime + 1, executionFile);
+                transitionState(waitingQueue.head, READY, currentTime, executionFile);
                 appendPCB(waitingQueue.head, waitingQueue, readyQueue);  
             }
             waitTemp = nextTemp;
@@ -515,7 +535,7 @@ void runPriorityScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstre
     while (newQueue.head || waitingQueue.head || readyQueue.head) {
 
         // --- NEW -> READY ---
-        while (newQueue.head && newQueue.head->arrivalTime == currentTime) {
+        while (newQueue.head && newQueue.head->arrivalTime <= currentTime){
             PCB* nextTemp = newQueue.head->next; // Save the next PCB
 
             int assignedPartition = findBestPartition(newQueue.head->memorySize);
@@ -537,7 +557,7 @@ void runPriorityScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstre
 
             if (waitTemp->ioDuration == 0) {
                 waitTemp->ioDuration = waitTemp->initialIODuration; // Reset I/O duration
-                transitionState(waitTemp, READY, currentTime + 1, executionFile);
+                transitionState(waitTemp, READY, currentTime, executionFile);
                 appendPCBByPriority(waitTemp, waitingQueue, readyQueue);
             }
             waitTemp = nextTemp; // Move to the next PCB
@@ -585,6 +605,99 @@ void runPriorityScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstre
     }
 }
 
+void runRRScheduler(HeadTailPCB& newQueue, ofstream& executionFile, ofstream& memoryStatusFile) {
+
+    HeadTailPCB waitingQueue, readyQueue;
+    initializeHeadTail(waitingQueue);
+    initializeHeadTail(readyQueue);
+
+    static int quantumRemaining = RRQuantum;
+
+    while (newQueue.head || waitingQueue.head || readyQueue.head) {
+
+        // --- NEW -> READY ---
+        while (newQueue.head && newQueue.head->arrivalTime <= currentTime){
+            PCB* nextTemp = newQueue.head->next; // Save the next PCB
+
+            int assignedPartition = findBestPartition(newQueue.head->memorySize);
+            if (assignedPartition != -1) {
+                newQueue.head->partition = assignedPartition;
+                updateMemoryStatus(assignedPartition - 1, newQueue.head, ALLOCATE);
+                displayMemoryStatus(currentTime, memoryStatusFile);
+                transitionState(newQueue.head, READY, currentTime, executionFile);
+                appendPCB(newQueue.head, newQueue, readyQueue);
+            }
+            newQueue.head = nextTemp; // Move to the next PCB in `newQueue`
+        }
+
+        // --- WAITING -> READY ---
+        PCB* waitTemp = waitingQueue.head;
+        while (waitTemp) {
+            PCB* nextTemp = waitTemp->next; // Save the next PCB
+            waitTemp->ioDuration--;         // Decrement remaining I/O duration
+
+            if (waitTemp->ioDuration == 0) {
+                waitTemp->ioDuration = waitTemp->initialIODuration; // Reset I/O duration
+                transitionState(waitTemp, READY, currentTime + (waitTemp->prevState == RUNNING ? 1 : 0) , executionFile);
+                appendPCB(waitTemp, waitingQueue, readyQueue);
+            }
+            waitTemp = nextTemp; // Move to the next PCB
+        }
+
+        // --- Increment Wait Time for All Except the Running Process ---
+        PCB* readyTemp = readyQueue.head;
+        if (readyTemp) readyTemp = readyTemp->next; // Skip the running process
+        while (readyTemp) {
+            readyTemp->waitTime++;
+            readyTemp = readyTemp->next;
+        }
+
+        // --- READY -> RUNNING ---
+        PCB* runningProcess = readyQueue.head;
+        if (runningProcess) {
+            PCB* nextRunning = runningProcess->next;
+
+            if (runningProcess->currentState != RUNNING) { // comimg from wait or new queue
+                transitionState(runningProcess, RUNNING, currentTime, executionFile);
+            }
+
+            if (runningProcess->totalCPUTime == runningProcess->remainingCPUTime) {
+                runningProcess->responseTime = currentTime - runningProcess->arrivalTime;
+            }
+
+
+            // RR only kicks out if we don't leave bc process terminates or IO
+            runningProcess->remainingCPUTime--;
+            quantumRemaining--;
+            
+            // --- RUNNING -> TERMINATED ---
+            if (runningProcess->remainingCPUTime == 0) {
+                transitionState(runningProcess, TERMINATED, currentTime + 1, executionFile);
+                updateMemoryStatus(runningProcess->partition - 1, runningProcess, FREE);
+                displayMemoryStatus(currentTime + 1, memoryStatusFile);
+                runningProcess->turnaroundTime = currentTime + 1 - runningProcess->arrivalTime;
+                popPCB(runningProcess, readyQueue); // Remove PCB from `readyQueue`
+                quantumRemaining = RRQuantum; // reset quantum after popping
+            }
+            // --- RUNNING -> WAITING ---
+            else if (((runningProcess->totalCPUTime - runningProcess->remainingCPUTime) % runningProcess->ioFrequency == 0) && (runningProcess->totalCPUTime != runningProcess->remainingCPUTime))  {
+                transitionState(runningProcess, WAITING, currentTime + 1, executionFile);
+                appendPCB(runningProcess, readyQueue, waitingQueue);
+                quantumRemaining = RRQuantum;
+            }
+            // --- RUNNING -> READY ---
+            else if (quantumRemaining == 0 && runningProcess->next != nullptr){
+                quantumRemaining = RRQuantum; // reset
+                transitionState(runningProcess, READY, currentTime + 1, executionFile);
+                shiftPCBToTail(readyQueue); // shift to end of READY Queue
+            }
+            else if (quantumRemaining == 0 && runningProcess->next == nullptr){
+                quantumRemaining = RRQuantum; // reset
+            }
+        }
+        currentTime++;
+    }
+}
 
 // Main function to load files and process the trace
 int main(int argc, char* argv[]) {
@@ -635,7 +748,7 @@ int main(int argc, char* argv[]) {
     } else if (algorithm == "PR") {
         runPriorityScheduler(list, output_execution_file, output_memory_status);
     } else if (algorithm == "RR") {
-        cerr << "Round Robin scheduling (RR) not implemented yet." << endl;
+        runRRScheduler(list, output_execution_file, output_memory_status);
     } else {
         cerr << "Unknown scheduling algorithm: " << algorithm << endl;
         return 1;
@@ -658,6 +771,3 @@ int main(int argc, char* argv[]) {
 
     return 1;
 }
-
-
-

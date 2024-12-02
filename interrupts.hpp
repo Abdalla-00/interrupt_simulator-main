@@ -12,6 +12,7 @@ using namespace std;
 
 #define VECTOR_TABLE_SIZE 26  // Size of the vector table
 #define MAX_PARTITIONS 6      // Number of memory partitions
+#define RRQuantum 100
 
 // make sure to state assumption of how the trace information must be in order of process arival time
 // assumption is that we assume all process are created as if they hasven't arived yet (ie loaded into the ready queue)

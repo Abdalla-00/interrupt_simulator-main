@@ -1,0 +1,5 @@
+PID: 8, ArrivalTime: 0, TotalCPUTime: 40, TurnaroundTime: 110, WaitTime: 62, ResponseTime: 0, ioDuration: 5, ioFrequency: 15, MemorySize: 15, MemoryPartition: 3
+PID: 7, ArrivalTime: 10, TotalCPUTime: 15, TurnaroundTime: 125, WaitTime: 104, ResponseTime: 35, ioDuration: 4, ioFrequency: 5, MemorySize: 20, MemoryPartition: 1
+PID: 9, ArrivalTime: 5, TotalCPUTime: 30, TurnaroundTime: 140, WaitTime: 92, ResponseTime: 30, ioDuration: 10, ioFrequency: 10, MemorySize: 9, MemoryPartition: 4
+PID: 4, ArrivalTime: 0, TotalCPUTime: 70, TurnaroundTime: 155, WaitTime: 79, ResponseTime: 15, ioDuration: 3, ioFrequency: 20, MemorySize: 12, MemoryPartition: 2
+155
