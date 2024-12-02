@@ -1,0 +1,13 @@
+PID: 33, ArrivalTime: 0, TotalCPUTime: 350, TurnaroundTime: 810, WaitTime: 302, ResponseTime: 0, ioDuration: 80, ioFrequency: 120, MemorySize: 25, MemoryPartition: 2
+PID: 34, ArrivalTime: 3, TotalCPUTime: 250, TurnaroundTime: 877, WaitTime: 509, ResponseTime: 117, ioDuration: 60, ioFrequency: 90, MemorySize: 20, MemoryPartition: 1
+PID: 35, ArrivalTime: 5, TotalCPUTime: 180, TurnaroundTime: 935, WaitTime: 677, ResponseTime: 205, ioDuration: 40, ioFrequency: 60, MemorySize: 15, MemoryPartition: 3
+PID: 36, ArrivalTime: 8, TotalCPUTime: 150, TurnaroundTime: 982, WaitTime: 774, ResponseTime: 262, ioDuration: 30, ioFrequency: 50, MemorySize: 10, MemoryPartition: 4
+PID: 37, ArrivalTime: 12, TotalCPUTime: 90, TurnaroundTime: 1008, WaitTime: 884, ResponseTime: 308, ioDuration: 18, ioFrequency: 30, MemorySize: 8, MemoryPartition: 5
+PID: 38, ArrivalTime: 15, TotalCPUTime: 70, TurnaroundTime: 1480, WaitTime: 564, ResponseTime: 1005, ioDuration: 10, ioFrequency: 20, MemorySize: 5, MemoryPartition: 2
+PID: 39, ArrivalTime: 18, TotalCPUTime: 320, TurnaroundTime: 1567, WaitTime: 223, ResponseTime: 1022, ioDuration: 75, ioFrequency: 100, MemorySize: 30, MemoryPartition: 1
+PID: 40, ArrivalTime: 20, TotalCPUTime: 120, TurnaroundTime: 1580, WaitTime: 432, ResponseTime: 1120, ioDuration: 25, ioFrequency: 35, MemorySize: 12, MemoryPartition: 3
+PID: 41, ArrivalTime: 22, TotalCPUTime: 200, TurnaroundTime: 2032, WaitTime: 271, ResponseTime: 1473, ioDuration: 45, ioFrequency: 70, MemorySize: 18, MemoryPartition: 2
+PID: 42, ArrivalTime: 25, TotalCPUTime: 400, TurnaroundTime: 2129, WaitTime: 69, ResponseTime: 1575, ioDuration: 90, ioFrequency: 150, MemorySize: 25, MemoryPartition: 1
+PID: 43, ArrivalTime: 28, TotalCPUTime: 60, TurnaroundTime: 2615, WaitTime: 850, ResponseTime: 1722, ioDuration: 5, ioFrequency: 12, MemorySize: 7, MemoryPartition: 5
+PID: 44, ArrivalTime: 30, TotalCPUTime: 450, TurnaroundTime: 2770, WaitTime: 12, ResponseTime: 2136, ioDuration: 120, ioFrequency: 200, MemorySize: 35, MemoryPartition: 1
+2800
